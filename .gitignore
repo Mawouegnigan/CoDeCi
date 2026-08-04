@@ -1,0 +1,21 @@
+# Variables d'environnement (contient le mot de passe de la base de données)
+.env
+
+# Fichiers Python générés
+__pycache__/
+*.pyc
+*.pyo
+venv/
+env/
+*.egg-info/
+
+# Photos uploadées en local (stockage de test, jamais versionné)
+storage/
+
+# Fichiers VS Code / IDE
+.vscode/
+.idea/
+
+# Fichiers système Windows/Mac
+Thumbs.db
+.DS_Store
