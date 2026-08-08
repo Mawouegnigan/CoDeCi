@@ -6,40 +6,76 @@ côté citoyen. Reçoit la photo + les coordonnées, exécute la
 vérification anti-fraude, puis enregistre le signalement.
 """
 
-import os
 import uuid
 from pathlib import Path
 
 from fastapi import APIRouter, Depends, File, Form, HTTPException, UploadFile, status
+from geoalchemy2.functions import ST_Covers, ST_GeogFromText
 from shapely.geometry import Point
 from sqlalchemy.orm import Session
 
+from app.api.dependencies import get_utilisateur_courant
 from app.config import settings
 from app.database import get_db
+from app.models.bac_categorie import CategorieSignalement
+from app.models.organisation import Commune
 from app.models.photo import Photo, StatutVerificationPhoto
 from app.models.signalement import Signalement, StatutSignalement, ModeSoumission
+from app.models.utilisateur import Utilisateur
 from app.schemas.signalement import SignalementReponse
 from app.services.photo_verification import verifier_photo, point_vers_geography
 
 router = APIRouter(prefix="/signalements", tags=["Signalements"])
 
 
+def _resoudre_categorie(code_categorie: str, db: Session) -> CategorieSignalement:
+    """Retrouve la catégorie correspondant au code envoyé par l'app (ex: 'depot_sauvage')."""
+    categorie = db.query(CategorieSignalement).filter(
+        CategorieSignalement.code == code_categorie
+    ).first()
+    if categorie is None:
+        raise HTTPException(
+            status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+            detail=f"Catégorie inconnue : « {code_categorie} ».",
+        )
+    return categorie
+
+
+def _resoudre_commune(latitude: float, longitude: float, db: Session) -> Commune:
+    """
+    Retrouve la commune dont la zone géographique contient le point donné,
+    via une requête spatiale PostGIS. Évite de demander à l'app Flutter
+    de connaître ou choisir la commune manuellement.
+    """
+    point_wkt = f"SRID=4326;POINT({longitude} {latitude})"
+    commune = db.query(Commune).filter(
+        ST_Covers(Commune.zone_geo, ST_GeogFromText(point_wkt))
+    ).first()
+
+    if commune is None:
+        raise HTTPException(
+            status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+            detail="Cette position ne correspond à aucune commune connue du District Autonome d'Abidjan.",
+        )
+    return commune
+
+
 @router.post("", response_model=SignalementReponse, status_code=status.HTTP_201_CREATED)
 async def creer_signalement(
-    utilisateur_id: uuid.UUID = Form(...),
-    categorie_id: uuid.UUID = Form(...),
-    commune_id: uuid.UUID = Form(...),
+    categorie: str = Form(...),
     latitude: float = Form(...),
     longitude: float = Form(...),
     bac_id: str | None = Form(None),
     mode_soumission: ModeSoumission = Form(ModeSoumission.en_ligne),
     photo: UploadFile = File(...),
+    utilisateur: Utilisateur = Depends(get_utilisateur_courant),
     db: Session = Depends(get_db),
 ):
     """
-    Crée un nouveau signalement. La photo est obligatoire et passe
-    systématiquement par la vérification anti-fraude avant que le
-    signalement soit accepté.
+    Crée un nouveau signalement pour l'utilisateur actuellement authentifié.
+    La photo est obligatoire et passe systématiquement par la vérification
+    anti-fraude avant que le signalement soit accepté. La commune est
+    déduite automatiquement des coordonnées GPS.
     """
     bac_id_uuid = None
     if bac_id:
@@ -50,6 +86,10 @@ async def creer_signalement(
                 status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
                 detail=f"bac_id invalide : « {bac_id} » n'est pas un UUID valide. Laissez le champ vide s'il n'y a pas de bac associé.",
             )
+
+    categorie_resolue = _resoudre_categorie(categorie, db)
+    commune_resolue = _resoudre_commune(latitude, longitude, db)
+
     contenu_photo = await photo.read()
     position_declaree = Point(longitude, latitude)
 
@@ -85,9 +125,9 @@ async def creer_signalement(
     # part directement en file d'attente pour revue manuelle admin
     # plutôt qu'un statut normal -- pas de points crédités automatiquement.
     nouveau_signalement = Signalement(
-        utilisateur_id=utilisateur_id,
-        categorie_id=categorie_id,
-        commune_id=commune_id,
+        utilisateur_id=utilisateur.id,
+        categorie_id=categorie_resolue.id,
+        commune_id=commune_resolue.id,
         bac_id=bac_id_uuid,
         photo_id=nouvelle_photo.id,
         coordonnees_gps=point_vers_geography(position_declaree),

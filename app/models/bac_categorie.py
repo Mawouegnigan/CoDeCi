@@ -3,15 +3,12 @@ Modèles Bac public et Catégorie de signalement.
 La catégorie est une table (pas un enum figé) pour rester
 évolutive sans migration lourde si on ajoute des catégories plus tard.
 """
-
 import uuid
 import enum
 from datetime import datetime
-
 from geoalchemy2 import Geography
 from sqlalchemy import Column, String, Text, DateTime, Enum, ForeignKey
 from sqlalchemy.dialects.postgresql import UUID
-
 from app.database import Base
 
 
@@ -23,7 +20,6 @@ class StatutBac(str, enum.Enum):
 
 class BacPublic(Base):
     __tablename__ = "bacs_publics"
-
     id = Column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
     localisation = Column(Geography(geometry_type="POINT", srid=4326), nullable=False)
     commune_id = Column(UUID(as_uuid=True), ForeignKey("communes.id"), nullable=False)
@@ -34,7 +30,11 @@ class BacPublic(Base):
 
 class CategorieSignalement(Base):
     __tablename__ = "categories_signalement"
-
     id = Column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
     libelle = Column(String(80), nullable=False, unique=True)
     description = Column(Text, nullable=True)
+
+    # Code stable sans accent (ex: "depot_sauvage"), utilisé par le client
+    # Flutter pour désigner une catégorie sans dépendre du libellé affiché
+    # ni d'un UUID codé en dur côté app.
+    code = Column(String(50), nullable=False, unique=True)

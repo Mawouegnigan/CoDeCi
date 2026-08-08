@@ -9,3 +9,8 @@ python-dotenv==1.0.1
 python-multipart==0.0.12
 Pillow==10.4.0
 imagehash==4.3.1
+
+# Authentification
+bcrypt==4.0.1
+passlib[bcrypt]==1.7.4
+python-jose[cryptography]==3.3.0
