@@ -8,7 +8,11 @@ class AppConfig {
   static const String apiBaseUrl = 'http://localhost:8000';
 
   static const String signalementsEndpoint = '/signalements';
+  
+  static const String trajetsEndpoint = '/trajets/aujourdhui';
 
   /// Délai max avant de considérer qu'il n'y a pas de connexion utile.
   static const Duration apiTimeout = Duration(seconds: 10);
+
+  
 }

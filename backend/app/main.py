@@ -4,7 +4,7 @@ Lancer avec : uvicorn app.main:app --reload
 """
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
-from app.api import signalements, auth
+from app.api import signalements, auth, trajets
 
 app = FastAPI(
     title="CoDeCI API",
@@ -25,6 +25,7 @@ app.add_middleware(
 
 app.include_router(auth.router)
 app.include_router(signalements.router)
+app.include_router(trajets.router)
 
 
 @app.get("/", tags=["Santé"])

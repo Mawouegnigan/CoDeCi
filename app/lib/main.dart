@@ -7,6 +7,7 @@ import 'repositories/signalement_repository.dart';
 import 'screens/auth/connexion_screen.dart';
 import 'screens/signalement_screen.dart';
 import 'services/sync_service.dart';
+import 'screens/chauffeur/tournee_screen.dart';
 
 Future<void> main() async {
   WidgetsFlutterBinding.ensureInitialized();
@@ -79,6 +80,10 @@ class _EcranRacine extends StatelessWidget {
 
         if (utilisateur == null) {
           return ConnexionScreen(authRepository: authRepository);
+        }
+
+        if (utilisateur.profil == 'chauffeur') {
+          return TourneeScreen(authRepository: authRepository);
         }
 
         return SignalementScreen(
