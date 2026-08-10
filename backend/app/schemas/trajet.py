@@ -29,3 +29,10 @@ class TrajetReponse(BaseModel):
 
     class Config:
         from_attributes = True
+
+class CollecteReponse(BaseModel):
+    """Confirmation après le marquage d'un bac comme collecté."""
+    bac_id: uuid.UUID
+    statut_bac: str
+    trajet_statut: StatutTrajet
+    tous_bacs_collectes: bool

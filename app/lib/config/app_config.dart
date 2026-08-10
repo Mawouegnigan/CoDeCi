@@ -11,6 +11,9 @@ class AppConfig {
   
   static const String trajetsEndpoint = '/trajets/aujourdhui';
 
+  static String collecterBacEndpoint(String trajetId, String bacId) =>
+    '/trajets/$trajetId/bacs/$bacId/collecter';
+    
   /// Délai max avant de considérer qu'il n'y a pas de connexion utile.
   static const Duration apiTimeout = Duration(seconds: 10);
 

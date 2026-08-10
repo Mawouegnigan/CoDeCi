@@ -5,6 +5,7 @@ class PointTrajet {
   final double longitude;
   final int ordre;
   final String? statutBac;
+  final bool collecte;
 
   PointTrajet({
     required this.bacId,
@@ -12,6 +13,7 @@ class PointTrajet {
     required this.longitude,
     required this.ordre,
     this.statutBac,
+    this.collecte = false,
   });
 
   factory PointTrajet.fromJson(Map<String, dynamic> json) {
@@ -21,6 +23,21 @@ class PointTrajet {
       longitude: (json['longitude'] as num).toDouble(),
       ordre: json['ordre'] as int,
       statutBac: json['statut_bac'] as String?,
+      collecte: json['collecte'] as bool? ?? false,
+    );
+  }
+
+  /// Copie ce point avec un nouveau statut, utile pour mettre à jour
+  /// l'affichage localement juste après un appel de collecte réussi,
+  /// sans devoir recharger toute la tournée depuis le serveur.
+  PointTrajet copierCommeCollecte() {
+    return PointTrajet(
+      bacId: bacId,
+      latitude: latitude,
+      longitude: longitude,
+      ordre: ordre,
+      statutBac: 'vide',
+      collecte: true,
     );
   }
 }
@@ -40,6 +57,20 @@ class Trajet {
     required this.camionMatricule,
     required this.points,
   });
+
+  /// Renvoie une copie de ce trajet avec le point donné remplacé,
+  /// pour rafraîchir l'affichage sans recharger toute la tournée.
+  Trajet avecPointMisAJour(PointTrajet pointModifie) {
+    return Trajet(
+      id: id,
+      dateTrajet: dateTrajet,
+      statut: statut,
+      camionMatricule: camionMatricule,
+      points: points
+          .map((p) => p.bacId == pointModifie.bacId ? pointModifie : p)
+          .toList(),
+    );
+  }
 
   factory Trajet.fromJson(Map<String, dynamic> json) {
     return Trajet(

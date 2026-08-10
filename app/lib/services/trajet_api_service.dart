@@ -12,7 +12,7 @@ class AucuneTourneeException implements Exception {
   String toString() => "Aucune tournée planifiée pour aujourd'hui.";
 }
 
-/// Couche responsable UNIQUEMENT de parler à l'endpoint /trajets/aujourdhui.
+/// Couche responsable UNIQUEMENT de parler aux endpoints /trajets/*.
 class TrajetApiService {
   Future<Trajet> tourneeDuJour(String token) async {
     final uri = Uri.parse(
@@ -47,6 +47,40 @@ class TrajetApiService {
       rethrow;
     } catch (e) {
       throw ApiAuthException('Impossible de récupérer la tournée : $e');
+    }
+  }
+
+  Future<void> collecterBac({
+    required String token,
+    required String trajetId,
+    required String bacId,
+  }) async {
+    final uri = Uri.parse(
+      '${AppConfig.apiBaseUrl}${AppConfig.collecterBacEndpoint(trajetId, bacId)}',
+    );
+
+    try {
+      final response = await http
+          .patch(uri, headers: {'Authorization': 'Bearer $token'})
+          .timeout(AppConfig.apiTimeout);
+
+      if (response.statusCode == 200) {
+        return;
+      }
+
+      if (response.statusCode == 401 || response.statusCode == 403) {
+        throw ApiAuthException('Session expirée, reconnecte-toi.');
+      }
+
+      throw ApiAuthException('Erreur inattendue (${response.statusCode}).');
+    } on SocketException catch (e) {
+      throw ApiAuthException('Pas de connexion : ${e.message}');
+    } on HttpException catch (e) {
+      throw ApiAuthException('Erreur réseau : ${e.message}');
+    } on ApiAuthException {
+      rethrow;
+    } catch (e) {
+      throw ApiAuthException('Impossible de marquer le bac collecté : $e');
     }
   }
 }
