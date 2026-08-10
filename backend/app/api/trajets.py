@@ -1,10 +1,12 @@
 """
 Routes pour les tournées (trajets) des chauffeurs.
 """
+import uuid
 from datetime import datetime
 from sqlalchemy.orm.attributes import flag_modified
 
 from app.models.bac_categorie import StatutBac
+from app.models.operations import PointSaute
 from app.schemas.trajet import CollecteReponse
 
 from datetime import date
@@ -71,6 +73,52 @@ def trajet_du_jour(
         points=points,
     )
 
+
+def _detecter_points_sautes(
+    trajet: TrajetCamion,
+    bac_collecte_id: str,
+    ordre_collecte,
+    chauffeur_id,
+    db: Session,
+) -> int:
+    """
+    Après qu'un bac soit marqué collecté, vérifie si des bacs plus tôt
+    dans l'ordre planifié de la tournée n'ont pas encore été collectés.
+    Chacun constitue un point sauté : le chauffeur est passé devant sans
+    le vider, dans le désordre de la tournée prévue.
+
+    Idempotent : ne crée pas de doublon si ce bac a déjà été flaggé comme
+    sauté sur ce trajet lors d'un appel précédent. Renvoie le nombre de
+    nouveaux points sautés détectés lors de cet appel.
+    """
+    ids_deja_flagges = {
+        str(row.bac_id)
+        for row in db.query(PointSaute.bac_id)
+        .filter(PointSaute.trajet_id == trajet.id)
+        .all()
+    }
+
+    nouveaux = 0
+    for point in trajet.liste_points_gps:
+        if point["bac_id"] == bac_collecte_id:
+            continue
+        if point["ordre"] >= ordre_collecte:
+            continue
+        if point.get("collecte"):
+            continue
+        if point["bac_id"] in ids_deja_flagges:
+            continue  # déjà tracé lors d'un passage précédent
+
+        db.add(PointSaute(
+            trajet_id=trajet.id,
+            bac_id=uuid.UUID(point["bac_id"]),
+            chauffeur_id=chauffeur_id,
+        ))
+        nouveaux += 1
+
+    return nouveaux
+
+
 @router.patch("/{trajet_id}/bacs/{bac_id}/collecter", response_model=CollecteReponse)
 def collecter_bac(
     trajet_id: str,
@@ -104,6 +152,16 @@ def collecter_bac(
             status_code=status.HTTP_404_NOT_FOUND,
             detail="Ce bac ne fait pas partie de cette tournée.",
         )
+
+    # Détecte les points sautés AVANT de marquer ce bac comme collecté,
+    # pour comparer son ordre à celui des bacs encore non collectés.
+    _detecter_points_sautes(
+        trajet=trajet,
+        bac_collecte_id=bac_id,
+        ordre_collecte=point_trouve["ordre"],
+        chauffeur_id=utilisateur.id,
+        db=db,
+    )
 
     # Marque le point comme collecté dans le JSON (nécessite flag_modified
     # car SQLAlchemy ne détecte pas les mutations internes d'un JSONB).

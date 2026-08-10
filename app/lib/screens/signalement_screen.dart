@@ -121,6 +121,15 @@ class _SignalementScreenState extends State<SignalementScreen> {
           resultat.messageErreur ?? 'Signalement rejeté par le serveur.',
         );
         break;
+      case ResultatSoumission.sessionExpiree:
+        // On NE réinitialise PAS le formulaire : photo, position et
+        // catégorie restent remplies pour que l'utilisateur puisse
+        // renvoyer en un clic juste après s'être reconnecté.
+        _afficherMessage(
+          resultat.messageErreur ?? 'Session expirée, merci de vous reconnecter.',
+        );
+        widget.authRepository.deconnexion();
+        break;
     }
   }
 

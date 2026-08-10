@@ -9,7 +9,7 @@ import '../services/queue_service.dart';
 /// Résultat renvoyé à l'UI après une tentative de soumission,
 /// pour lui permettre d'afficher le bon message sans connaître
 /// les détails de l'implémentation réseau.
-enum ResultatSoumission { envoye, misEnAttente, rejete }
+enum ResultatSoumission { envoye, misEnAttente, rejete, sessionExpiree }
 
 class SoumissionResult {
   final ResultatSoumission resultat;
@@ -56,16 +56,26 @@ class SignalementRepository {
     try {
       await _apiService.envoyerSignalement(signalement, token: _obtenirToken());
       return SoumissionResult(ResultatSoumission.envoye);
+    } on ApiAuthException catch (e) {
+      // Token expiré/invalide : on NE met PAS en file (ça échouerait à
+      // chaque tentative avec le même token) et on NE jette PAS non plus.
+      // L'UI doit rediriger vers la reconnexion ; la photo reste en
+      // mémoire côté écran pour permettre un nouvel envoi juste après.
+      return SoumissionResult(
+        ResultatSoumission.sessionExpiree,
+        messageErreur: e.message,
+      );
     } on ApiRejectedException catch (e) {
-      // Erreur métier (ex: doublon détecté) -> on ne remet PAS en file,
-      // ça resterait rejeté indéfiniment. On remonte l'erreur telle quelle.
+      // Erreur métier définitive (ex: doublon détecté) -> on ne remet PAS
+      // en file, ça resterait rejeté indéfiniment.
       return SoumissionResult(
         ResultatSoumission.rejete,
         messageErreur: e.message,
       );
     } on ApiNetworkException catch (_) {
-      // Pas de réseau utile -> mise en file, sera renvoyé automatiquement
-      // par SyncService dès que la connexion revient.
+      // Pas de réseau utile OU erreur serveur transitoire (5xx) -> mise en
+      // file, sera renvoyé automatiquement par SyncService dès que la
+      // connexion (ou le serveur) redevient disponible.
       await _queueService.ajouter(signalement);
       _notifierEnAttente();
       return SoumissionResult(ResultatSoumission.misEnAttente);
@@ -91,9 +101,14 @@ class SignalementRepository {
         // boucler dessus indéfiniment. À affiner plus tard si besoin de
         // notifier l'utilisateur de ce rejet a posteriori.
         await _queueService.retirer(signalement.id);
+      } on ApiAuthException {
+        // Token expiré pendant une resync en tâche de fond : on ne peut
+        // rien envoyer tant que l'utilisateur ne s'est pas reconnecté.
+        // On garde les éléments en file et on arrête cette passe.
+        break;
       } on ApiNetworkException {
-        // Toujours pas de réseau utile -> on arrête cette passe,
-        // on réessaiera au prochain changement de connectivité.
+        // Toujours pas de réseau utile, ou erreur serveur transitoire ->
+        // on arrête cette passe, on réessaiera au prochain déclenchement.
         break;
       }
     }
