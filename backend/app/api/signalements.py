@@ -4,28 +4,49 @@ Endpoints API pour les signalements citoyens.
 POST /signalements : point d'entrée principal de l'app mobile
 côté citoyen. Reçoit la photo + les coordonnées, exécute la
 vérification anti-fraude, puis enregistre le signalement.
+
+GET /signalements : liste paginée pour les tableaux de bord
+(agent municipal, entreprise de collecte, admin, ministère).
+Lecture seule, inaccessible aux profils citoyen et chauffeur.
 """
 
 import uuid
 from pathlib import Path
 
-from fastapi import APIRouter, Depends, File, Form, HTTPException, UploadFile, status
+from fastapi import APIRouter, Depends, File, Form, HTTPException, Query, UploadFile, status
 from geoalchemy2.functions import ST_Covers, ST_GeogFromText
+from geoalchemy2.shape import to_shape
 from shapely.geometry import Point
-from sqlalchemy.orm import Session
+from sqlalchemy.orm import Session, joinedload
 
-from app.api.dependencies import get_utilisateur_courant
+from app.api.dependencies import get_utilisateur_courant, exiger_profil
 from app.config import settings
 from app.database import get_db
 from app.models.bac_categorie import CategorieSignalement
 from app.models.organisation import Commune
 from app.models.photo import Photo, StatutVerificationPhoto
 from app.models.signalement import Signalement, StatutSignalement, ModeSoumission
-from app.models.utilisateur import Utilisateur
-from app.schemas.signalement import SignalementReponse
+from app.models.utilisateur import Utilisateur, ProfilUtilisateur
+from app.schemas.signalement import (
+    SignalementReponse,
+    SignalementListeReponse,
+    SignalementListeItem,
+    CategorieInfo,
+    CommuneInfo,
+)
 from app.services.photo_verification import verifier_photo, point_vers_geography
 
 router = APIRouter(prefix="/signalements", tags=["Signalements"])
+
+# Profils autorisés à consulter la liste des signalements (dashboards).
+# Le citoyen ne voit pas les signalements des autres (confidentialité).
+# Le chauffeur a son propre périmètre via /trajets, pas besoin d'accès ici.
+_PROFILS_DASHBOARD = (
+    ProfilUtilisateur.agent_municipal,
+    ProfilUtilisateur.entreprise,
+    ProfilUtilisateur.admin,
+    ProfilUtilisateur.ministere,
+)
 
 
 def _resoudre_categorie(code_categorie: str, db: Session) -> CategorieSignalement:
@@ -58,6 +79,70 @@ def _resoudre_commune(latitude: float, longitude: float, db: Session) -> Commune
             detail="Cette position ne correspond à aucune commune connue du District Autonome d'Abidjan.",
         )
     return commune
+
+
+@router.get("", response_model=SignalementListeReponse)
+def lister_signalements(
+    commune_id: uuid.UUID | None = Query(None, description="Filtrer par commune"),
+    statut: StatutSignalement | None = Query(None, description="Filtrer par statut"),
+    categorie_id: uuid.UUID | None = Query(None, description="Filtrer par catégorie"),
+    limit: int = Query(50, ge=1, le=200),
+    offset: int = Query(0, ge=0),
+    utilisateur: Utilisateur = Depends(exiger_profil(*_PROFILS_DASHBOARD)),
+    db: Session = Depends(get_db),
+):
+    """
+    Liste les signalements citoyens pour les tableaux de bord municipaux,
+    entreprises et ministériels. Lecture seule, triée du plus récent au
+    plus ancien.
+
+    NOTE MVP : accessible à tous les profils du dashboard sans filtrage
+    automatique par commune/entreprise -- le role-scoping strict (agent
+    municipal limité à sa commune, entreprise à sa flotte) est prévu "à
+    terme" mais pas requis pour le prototype démontrable. Les filtres
+    query params ci-dessous permettent déjà de circonscrire les résultats
+    manuellement en attendant cette évolution.
+    """
+    requete = db.query(Signalement).options(
+        joinedload(Signalement.categorie),
+        joinedload(Signalement.commune),
+        joinedload(Signalement.utilisateur),
+    )
+
+    if commune_id is not None:
+        requete = requete.filter(Signalement.commune_id == commune_id)
+    if statut is not None:
+        requete = requete.filter(Signalement.statut == statut)
+    if categorie_id is not None:
+        requete = requete.filter(Signalement.categorie_id == categorie_id)
+
+    total = requete.count()
+
+    signalements = (
+        requete
+        .order_by(Signalement.date_creation.desc())
+        .limit(limit)
+        .offset(offset)
+        .all()
+    )
+
+    items = []
+    for s in signalements:
+        point = to_shape(s.coordonnees_gps)
+        items.append(SignalementListeItem(
+            id=s.id,
+            statut=s.statut.value,
+            mode_soumission=s.mode_soumission.value,
+            date_creation=s.date_creation,
+            date_resolution=s.date_resolution,
+            categorie=CategorieInfo(libelle=s.categorie.libelle, code=s.categorie.code),
+            commune=CommuneInfo(nom=s.commune.nom),
+            citoyen_nom=s.utilisateur.nom,
+            latitude=point.y,
+            longitude=point.x,
+        ))
+
+    return SignalementListeReponse(items=items, total=total, limit=limit, offset=offset)
 
 
 @router.post("", response_model=SignalementReponse, status_code=status.HTTP_201_CREATED)

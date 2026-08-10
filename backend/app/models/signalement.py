@@ -47,3 +47,5 @@ class Signalement(Base):
 
     photo = relationship("Photo")
     categorie = relationship("CategorieSignalement")
+    commune = relationship("Commune")
+    utilisateur = relationship("Utilisateur")
