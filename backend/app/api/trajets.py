@@ -1,6 +1,10 @@
 """
 Routes pour les tournées (trajets) des chauffeurs.
 """
+from app.models.operations import TrajetCamion, StatutTrajet
+from typing import Optional
+from app.models.organisation import EntrepriseCollecte
+from app.schemas.trajet import TrajetListeItem, TrajetListeReponse
 import uuid
 from datetime import datetime
 from sqlalchemy.orm.attributes import flag_modified
@@ -187,3 +191,71 @@ def collecter_bac(
         trajet_statut=trajet.statut,
         tous_bacs_collectes=tous_collectes,
     )
+
+@router.get("", response_model=TrajetListeReponse)
+def lister_trajets(
+    date_trajet: Optional[date] = None,
+    statut: Optional[StatutTrajet] = None,
+    entreprise_id: Optional[uuid.UUID] = None,
+    limit: int = 50,
+    offset: int = 0,
+    utilisateur: Utilisateur = Depends(
+        exiger_profil("agent_municipal", "entreprise", "admin", "ministere")
+    ),
+    db: Session = Depends(get_db),
+):
+    """
+    Liste les tournées pour les tableaux de bord. Par défaut, ne montre
+    que les tournées du jour ; passer date_trajet pour consulter un autre
+    jour. Lecture seule, triée par statut puis heure de création.
+    """
+    if limit < 1 or limit > 200:
+        limit = 50
+    if offset < 0:
+        offset = 0
+
+    date_filtree = date_trajet or date.today()
+
+    requete = (
+        db.query(TrajetCamion)
+        .join(Camion, TrajetCamion.camion_id == Camion.id)
+        .filter(TrajetCamion.date_trajet == date_filtree)
+    )
+
+    if statut is not None:
+        requete = requete.filter(TrajetCamion.statut == statut)
+    if entreprise_id is not None:
+        requete = requete.filter(Camion.entreprise_id == entreprise_id)
+
+    total = requete.count()
+    trajets = (
+        requete.order_by(TrajetCamion.statut, TrajetCamion.date_creation)
+        .offset(offset)
+        .limit(limit)
+        .all()
+    )
+
+    items = []
+    for trajet in trajets:
+        camion = db.query(Camion).filter(Camion.id == trajet.camion_id).first()
+        entreprise = (
+            db.query(EntrepriseCollecte).filter(EntrepriseCollecte.id == camion.entreprise_id).first()
+            if camion else None
+        )
+        chauffeur = db.query(Utilisateur).filter(Utilisateur.id == trajet.chauffeur_id).first()
+
+        nombre_bacs_total = len(trajet.liste_points_gps)
+        nombre_bacs_collectes = sum(1 for p in trajet.liste_points_gps if p.get("collecte"))
+
+        items.append(TrajetListeItem(
+            id=trajet.id,
+            date_trajet=trajet.date_trajet,
+            statut=trajet.statut,
+            camion_matricule=camion.matricule if camion else "N/A",
+            entreprise_nom=entreprise.nom if entreprise else "N/A",
+            chauffeur_nom=chauffeur.nom if chauffeur else "N/A",
+            nombre_bacs_total=nombre_bacs_total,
+            nombre_bacs_collectes=nombre_bacs_collectes,
+        ))
+
+    return TrajetListeReponse(items=items, total=total, limit=limit, offset=offset)

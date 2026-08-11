@@ -36,3 +36,22 @@ class CollecteReponse(BaseModel):
     statut_bac: str
     trajet_statut: StatutTrajet
     tous_bacs_collectes: bool
+
+class TrajetListeItem(BaseModel):
+    """Un trajet dans la liste globale du dashboard, avec ses agrégats."""
+    id: uuid.UUID
+    date_trajet: date
+    statut: StatutTrajet
+    camion_matricule: str
+    entreprise_nom: str
+    chauffeur_nom: str
+    nombre_bacs_total: int
+    nombre_bacs_collectes: int
+
+
+class TrajetListeReponse(BaseModel):
+    """Réponse paginée pour la liste des trajets (vue dashboard)."""
+    items: List[TrajetListeItem]
+    total: int
+    limit: int
+    offset: int
