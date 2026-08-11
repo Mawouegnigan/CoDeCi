@@ -52,7 +52,8 @@ export default function Tournees() {
 
       <nav style={{ margin: '16px 0' }}>
         <a href="/signalements" style={{ marginRight: '16px' }}>Signalements</a>
-        <a href="/tournees">Tournées</a>
+        <a href="/tournees" style={{ marginRight: '16px' }}>Tournées</a>
+        <a href="/carte">Carte</a>
       </nav>
 
       {erreur && <p style={{ color: 'red' }}>{erreur}</p>}

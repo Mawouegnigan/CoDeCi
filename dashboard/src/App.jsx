@@ -3,6 +3,7 @@ import { AuthProvider, useAuth } from './context/AuthContext';
 import Login from './pages/Login';
 import Signalements from './pages/Signalements';
 import Tournees from './pages/Tournees';
+import Carte from './pages/Carte';
 
 function RouteProtegee({ children }) {
   const { utilisateur } = useAuth();
@@ -26,6 +27,14 @@ function AppRoutes() {
         element={
           <RouteProtegee>
             <Tournees />
+          </RouteProtegee>
+        }
+      />
+      <Route
+        path="/carte"
+        element={
+          <RouteProtegee>
+            <Carte />
           </RouteProtegee>
         }
       />
