@@ -27,6 +27,9 @@ from app.schemas.trajet import TrajetReponse, PointTrajetReponse
 from app.api.dependencies import exiger_profil
 from app.models.operations import TrajetCamion, StatutTrajet
 
+from app.schemas.trajet import TrajetOptimiseReponse
+from app.services.optimisation import optimiser_tournee, ErreurOptimisation
+
 router = APIRouter(prefix="/trajets", tags=["Trajets"])
 
 
@@ -157,8 +160,6 @@ def collecter_bac(
             detail="Ce bac ne fait pas partie de cette tournée.",
         )
 
-    # Détecte les points sautés AVANT de marquer ce bac comme collecté,
-    # pour comparer son ordre à celui des bacs encore non collectés.
     _detecter_points_sautes(
         trajet=trajet,
         bac_collecte_id=bac_id,
@@ -167,13 +168,10 @@ def collecter_bac(
         db=db,
     )
 
-    # Marque le point comme collecté dans le JSON (nécessite flag_modified
-    # car SQLAlchemy ne détecte pas les mutations internes d'un JSONB).
     point_trouve["collecte"] = True
     point_trouve["heure_collecte"] = datetime.utcnow().isoformat()
     flag_modified(trajet, "liste_points_gps")
 
-    # Met à jour le bac lui-même : vidé, avec horodatage.
     bac = db.query(BacPublic).filter(BacPublic.id == bac_id).first()
     if bac is not None:
         bac.statut = StatutBac.vide
@@ -191,6 +189,58 @@ def collecter_bac(
         trajet_statut=trajet.statut,
         tous_bacs_collectes=tous_collectes,
     )
+
+
+@router.post("/{trajet_id}/optimiser", response_model=TrajetOptimiseReponse)
+def optimiser_trajet(
+    trajet_id: str,
+    utilisateur: Utilisateur = Depends(
+        exiger_profil("agent_municipal", "entreprise", "admin", "ministere")
+    ),
+    db: Session = Depends(get_db),
+):
+    """Recalcule l'ordre optimal des bacs d'une tournée via OR-Tools + Mapbox."""
+    trajet = db.query(TrajetCamion).filter(TrajetCamion.id == trajet_id).first()
+
+    if trajet is None:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="Tournée introuvable.",
+        )
+
+    if len(trajet.liste_points_gps) < 2:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="Pas assez de points dans cette tournée pour optimiser l'ordre.",
+        )
+
+    try:
+        points_optimises = optimiser_tournee(trajet.liste_points_gps)
+    except ErreurOptimisation as erreur:
+        raise HTTPException(
+            status_code=status.HTTP_502_BAD_GATEWAY,
+            detail=str(erreur),
+        )
+
+    trajet.liste_points_gps = points_optimises
+    trajet.ordre_modifie_manuellement = False
+    flag_modified(trajet, "liste_points_gps")
+    db.commit()
+    db.refresh(trajet)
+
+    points_reponse = [
+        PointTrajetReponse(
+            bac_id=p["bac_id"],
+            latitude=p["latitude"],
+            longitude=p["longitude"],
+            ordre=p["ordre"],
+            statut_bac=None,
+        )
+        for p in trajet.liste_points_gps
+    ]
+
+    return TrajetOptimiseReponse(id=trajet.id, points=points_reponse)
+
 
 @router.get("", response_model=TrajetListeReponse)
 def lister_trajets(

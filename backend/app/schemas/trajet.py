@@ -55,3 +55,10 @@ class TrajetListeReponse(BaseModel):
     total: int
     limit: int
     offset: int
+
+class TrajetOptimiseReponse(BaseModel):
+    """Tournée renvoyée après optimisation de l'ordre des bacs."""
+    id: uuid.UUID
+    points: List[PointTrajetReponse]
+    class Config:
+        from_attributes = True

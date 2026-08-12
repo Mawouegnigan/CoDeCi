@@ -18,6 +18,8 @@ class Settings(BaseSettings):
     jwt_secret_key: str = "change-moi-dans-le-.env-avant-la-production"
     jwt_algorithm: str = "HS256"
     jwt_expiration_minutes: int = 60 * 24 * 7  # 7 jours
+    # Optimisation de tournées
+    mapbox_token: str = "change-moi-dans-le-.env"
 
     class Config:
         env_file = ".env"
