@@ -25,6 +25,7 @@ dependencies:
   path_provider: ^2.1.4       # (déjà souvent tiré par image_picker, mais utile en direct)
   uuid: ^4.5.1                # génération d'identifiants uniques pour chaque signalement
   flutter_secure_storage: ^9.2.2   # stockage chiffré du token JWT
+  mapbox_maps_flutter: ^2.0.0       # navigation chauffeur (carte + itinéraire)
 
 dev_dependencies:
   flutter_test:

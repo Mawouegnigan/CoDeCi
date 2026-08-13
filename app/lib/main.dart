@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
 import 'package:hive_flutter/hive_flutter.dart';
+import 'package:mapbox_maps_flutter/mapbox_maps_flutter.dart';
 
 import 'models/utilisateur.dart';
 import 'repositories/auth_repository.dart';
@@ -11,6 +12,12 @@ import 'screens/chauffeur/tournee_screen.dart';
 
 Future<void> main() async {
   WidgetsFlutterBinding.ensureInitialized();
+
+  // Token public Mapbox, injecté au lancement via --dart-define
+  // (voir .vscode/launch.json, jamais codé en dur ici).
+  const tokenMapbox = String.fromEnvironment('MAPBOX_ACCESS_TOKEN');
+  MapboxOptions.setAccessToken(tokenMapbox);
+
   await Hive.initFlutter();
 
   final authRepository = AuthRepository();

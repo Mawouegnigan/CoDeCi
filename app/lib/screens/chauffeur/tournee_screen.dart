@@ -3,6 +3,7 @@ import 'package:flutter/material.dart';
 import '../../models/trajet.dart';
 import '../../repositories/auth_repository.dart';
 import '../../services/trajet_api_service.dart';
+import 'navigation_screen.dart';
 
 class TourneeScreen extends StatefulWidget {
   final AuthRepository authRepository;
@@ -98,6 +99,27 @@ class _TourneeScreenState extends State<TourneeScreen> {
           ),
         );
       }
+    }
+  }
+
+  Future<void> _naviguerVers(PointTrajet point) async {
+    final trajet = _trajet;
+    if (trajet == null) return;
+
+    final resultat = await Navigator.of(context).push<bool>(
+      MaterialPageRoute(
+        builder: (context) => NavigationScreen(
+          authRepository: widget.authRepository,
+          trajet: trajet,
+          pointCible: point,
+        ),
+      ),
+    );
+
+    // La navigation renvoie `true` si le bac a été marqué collecté
+    // depuis cet écran : on recharge la tournée pour refléter l'état réel.
+    if (resultat == true) {
+      _chargerTournee();
     }
   }
 
@@ -235,9 +257,19 @@ class _TourneeScreenState extends State<TourneeScreen> {
                           height: 24,
                           child: CircularProgressIndicator(strokeWidth: 2),
                         )
-                      : ElevatedButton(
-                          onPressed: () => _collecterBac(point),
-                          child: const Text('Collecter'),
+                      : Row(
+                          mainAxisSize: MainAxisSize.min,
+                          children: [
+                            IconButton(
+                              icon: const Icon(Icons.navigation),
+                              tooltip: 'Naviguer vers ce bac',
+                              onPressed: () => _naviguerVers(point),
+                            ),
+                            ElevatedButton(
+                              onPressed: () => _collecterBac(point),
+                              child: const Text('Collecter'),
+                            ),
+                          ],
                         ),
             ),
           );
