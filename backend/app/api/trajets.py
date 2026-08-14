@@ -12,6 +12,7 @@ from sqlalchemy.orm.attributes import flag_modified
 from app.models.bac_categorie import StatutBac
 from app.models.operations import PointSaute
 from app.schemas.trajet import CollecteReponse
+from app.models.bac_categorie import BacPublic
 
 from datetime import date
 
@@ -300,13 +301,31 @@ def lister_trajets(
     elif entreprise_id is not None:
         requete = requete.filter(Camion.entreprise_id == entreprise_id)
 
-    total = requete.count()
-    trajets = (
-        requete.order_by(TrajetCamion.statut, TrajetCamion.date_creation)
-        .offset(offset)
-        .limit(limit)
-        .all()
-    )
+    trajets_bruts = requete.order_by(TrajetCamion.statut, TrajetCamion.date_creation).all()
+
+    if utilisateur.profil == "agent_municipal":
+        # Pas de lien direct commune <-> trajet en base : une tournée
+        # est rattachée à la commune de l'agent si au moins un de ses
+        # bacs s'y trouve. Filtrage en Python, cohérent avec le volume
+        # limité attendu pour ce MVP.
+        if utilisateur.commune_id is None:
+            raise HTTPException(
+                status_code=status.HTTP_403_FORBIDDEN,
+                detail="Ce compte n'est rattaché à aucune commune.",
+            )
+        bac_ids_commune = {
+            str(row.id)
+            for row in db.query(BacPublic.id)
+            .filter(BacPublic.commune_id == utilisateur.commune_id)
+            .all()
+        }
+        trajets_bruts = [
+            t for t in trajets_bruts
+            if any(p["bac_id"] in bac_ids_commune for p in t.liste_points_gps)
+        ]
+
+    total = len(trajets_bruts)
+    trajets = trajets_bruts[offset:offset + limit]
 
     items = []
     for trajet in trajets:

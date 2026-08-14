@@ -5,9 +5,12 @@ import Signalements from './pages/Signalements';
 import Tournees from './pages/Tournees';
 import Carte from './pages/Carte';
 
+const PROFILS_DASHBOARD = ['agent_municipal', 'entreprise', 'admin', 'ministere'];
+
 function RouteProtegee({ children }) {
   const { utilisateur } = useAuth();
-  return utilisateur ? children : <Navigate to="/" replace />;
+  const acces = utilisateur && PROFILS_DASHBOARD.includes(utilisateur.profil);
+  return acces ? children : <Navigate to="/" replace />;
 }
 
 function AppRoutes() {

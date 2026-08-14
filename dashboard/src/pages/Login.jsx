@@ -2,13 +2,15 @@ import { useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { useAuth } from '../context/AuthContext';
 
+const PROFILS_DASHBOARD = ['agent_municipal', 'entreprise', 'admin', 'ministere'];
+
 export default function Login() {
   const [telephone, setTelephone] = useState('');
   const [motDePasse, setMotDePasse] = useState('');
   const [erreur, setErreur] = useState('');
   const [chargement, setChargement] = useState(false);
 
-  const { connexion } = useAuth();
+  const { connexion, deconnexion } = useAuth();
   const navigate = useNavigate();
 
   async function gererSoumission(e) {
@@ -17,7 +19,16 @@ export default function Login() {
     setChargement(true);
 
     try {
-      await connexion(telephone, motDePasse);
+      const utilisateurConnecte = await connexion(telephone, motDePasse);
+
+      if (!PROFILS_DASHBOARD.includes(utilisateurConnecte.profil)) {
+        deconnexion();
+        setErreur(
+          "Ce compte n'a pas accès au dashboard web. L'application mobile CoDeCI est réservée aux chauffeurs et citoyens."
+        );
+        return;
+      }
+
       navigate('/signalements');
     } catch (err) {
       if (err.response?.status === 401) {
@@ -31,32 +42,32 @@ export default function Login() {
   }
 
   return (
-    <div style={{ maxWidth: '360px', margin: '80px auto', fontFamily: 'sans-serif' }}>
-      <h1>CoDeCI — Dashboard</h1>
-      <form onSubmit={gererSoumission}>
-        <div style={{ marginBottom: '12px' }}>
-          <label>Téléphone</label>
+    <div style={{ maxWidth: '360px', margin: '80px auto', fontFamily: 'var(--font-body)' }}>
+      <h1 style={{ fontFamily: 'var(--font-display)', marginBottom: '24px' }}>CoDeCI — Dashboard</h1>
+      <form onSubmit={gererSoumission} className="card" style={{ padding: '24px' }}>
+        <div className="field" style={{ maxWidth: 'none' }}>
+          <label htmlFor="telephone">Téléphone</label>
           <input
+            id="telephone"
             type="text"
             value={telephone}
             onChange={(e) => setTelephone(e.target.value)}
-            style={{ width: '100%', padding: '8px' }}
             required
           />
         </div>
-        <div style={{ marginBottom: '12px' }}>
-          <label>Mot de passe</label>
+        <div className="field" style={{ maxWidth: 'none' }}>
+          <label htmlFor="mot-de-passe">Mot de passe</label>
           <input
+            id="mot-de-passe"
             type="password"
             value={motDePasse}
             onChange={(e) => setMotDePasse(e.target.value)}
-            style={{ width: '100%', padding: '8px' }}
             required
           />
         </div>
-        {erreur && <p style={{ color: 'red' }}>{erreur}</p>}
-        <button type="submit" disabled={chargement} style={{ padding: '8px 16px' }}>
-          {chargement ? 'Connexion...' : 'Se connecter'}
+        {erreur && <div className="alert alert--error">{erreur}</div>}
+        <button type="submit" disabled={chargement} className="btn btn--primary" style={{ width: '100%' }}>
+          {chargement ? 'Connexion…' : 'Se connecter'}
         </button>
       </form>
     </div>
