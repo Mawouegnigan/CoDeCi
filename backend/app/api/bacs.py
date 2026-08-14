@@ -2,7 +2,7 @@
 Routes pour la consultation des bacs publics (vue dashboard / carte).
 """
 from geoalchemy2.shape import to_shape
-from fastapi import APIRouter, Depends
+from fastapi import APIRouter, Depends, HTTPException, status
 from sqlalchemy.orm import Session
 
 from app.database import get_db
@@ -26,8 +26,24 @@ def lister_bacs(
     Liste tous les bacs publics avec leur position et statut, pour
     affichage sur la carte du dashboard. Lecture seule, pas de pagination
     (volume attendu limité à quelques centaines de bacs pour le MVP).
+
+    Scoping par profil :
+    - agent_municipal : ne voit que les bacs de sa propre commune.
+    - entreprise, admin, ministere : accès complet (une entreprise de
+      collecte doit voir tous les bacs pour planifier ses tournées,
+      pas seulement ceux d'une commune).
     """
-    bacs = db.query(BacPublic).all()
+    requete = db.query(BacPublic)
+
+    if utilisateur.profil == "agent_municipal":
+        if utilisateur.commune_id is None:
+            raise HTTPException(
+                status_code=status.HTTP_403_FORBIDDEN,
+                detail="Ce compte n'est rattaché à aucune commune.",
+            )
+        requete = requete.filter(BacPublic.commune_id == utilisateur.commune_id)
+
+    bacs = requete.all()
 
     items = []
     for bac in bacs:

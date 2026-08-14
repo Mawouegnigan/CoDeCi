@@ -208,6 +208,14 @@ def optimiser_trajet(
             detail="Tournée introuvable.",
         )
 
+    if utilisateur.profil == "entreprise":
+        camion = db.query(Camion).filter(Camion.id == trajet.camion_id).first()
+        if camion is None or str(camion.entreprise_id) != str(utilisateur.entreprise_id):
+            raise HTTPException(
+                status_code=status.HTTP_403_FORBIDDEN,
+                detail="Cette tournée n'appartient pas à votre entreprise.",
+            )
+
     if len(trajet.liste_points_gps) < 2:
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,
@@ -258,6 +266,13 @@ def lister_trajets(
     Liste les tournées pour les tableaux de bord. Par défaut, ne montre
     que les tournées du jour ; passer date_trajet pour consulter un autre
     jour. Lecture seule, triée par statut puis heure de création.
+
+    Scoping par profil :
+    - entreprise : ne voit que les tournées de ses propres camions
+      (entreprise_id en paramètre est ignoré si présent).
+    - admin / ministere : accès complet, entreprise_id optionnel comme filtre.
+    - agent_municipal : accès complet pour l'instant (scoping par commune
+      à ajouter séparément, pas de lien direct commune↔trajet en base).
     """
     if limit < 1 or limit > 200:
         limit = 50
@@ -274,7 +289,15 @@ def lister_trajets(
 
     if statut is not None:
         requete = requete.filter(TrajetCamion.statut == statut)
-    if entreprise_id is not None:
+
+    if utilisateur.profil == "entreprise":
+        if utilisateur.entreprise_id is None:
+            raise HTTPException(
+                status_code=status.HTTP_403_FORBIDDEN,
+                detail="Ce compte n'est rattaché à aucune entreprise.",
+            )
+        requete = requete.filter(Camion.entreprise_id == utilisateur.entreprise_id)
+    elif entreprise_id is not None:
         requete = requete.filter(Camion.entreprise_id == entreprise_id)
 
     total = requete.count()

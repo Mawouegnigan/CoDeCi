@@ -109,8 +109,16 @@ def lister_signalements(
         joinedload(Signalement.utilisateur),
     )
 
-    if commune_id is not None:
+    if utilisateur.profil == ProfilUtilisateur.agent_municipal:
+        if utilisateur.commune_id is None:
+            raise HTTPException(
+                status_code=status.HTTP_403_FORBIDDEN,
+                detail="Ce compte n'est rattaché à aucune commune.",
+            )
+        requete = requete.filter(Signalement.commune_id == utilisateur.commune_id)
+    elif commune_id is not None:
         requete = requete.filter(Signalement.commune_id == commune_id)
+
     if statut is not None:
         requete = requete.filter(Signalement.statut == statut)
     if categorie_id is not None:
