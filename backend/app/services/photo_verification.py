@@ -23,11 +23,73 @@ from geoalchemy2.shape import from_shape
 from shapely.geometry import Point
 from sqlalchemy.orm import Session
 
+import base64
+
+import anthropic
+
 from app.config import settings
 from app.models.photo import Photo, StatutVerificationPhoto
 
 # Une photo plus vieille que ça au moment de l'envoi est jugée suspecte
 AGE_MAX_PHOTO = timedelta(hours=24)
+
+_PROMPT_VERIFICATION_IA = (
+    "Tu vérifies des photos soumises par des citoyens pour signaler des "
+    "déchets à collecter en Côte d'Ivoire (dépôts sauvages, poubelles "
+    "débordantes, ordures accumulées). Réponds uniquement par 'OUI' si "
+    "la photo montre clairement des déchets ou des ordures, ou par 'NON' "
+    "si elle ne montre pas de déchets (photo hors-sujet, floue au point "
+    "d'être inexploitable, ou trompeuse). Un seul mot, rien d'autre."
+)
+
+
+def _verifier_contenu_ia(contenu_fichier: bytes) -> tuple[bool, str | None]:
+    """
+    Interroge un modèle de vision pour confirmer que la photo montre bien
+    des déchets. Renvoie (contenu_valide, motif_si_invalide).
+
+    Défaillant en douceur : si l'appel échoue (réseau, quota, clé absente)
+    ou si la vérification est désactivée en config, on considère le
+    contenu comme valide plutôt que de bloquer un citoyen à cause d'un
+    problème indépendant de sa soumission -- l'EXIF et le hash restent
+    les contrôles obligatoires, l'IA est une couche additionnelle.
+    """
+    if not settings.verification_ia_active:
+        return True, None
+
+    try:
+        client = anthropic.Anthropic(api_key=settings.anthropic_api_key)
+        image_b64 = base64.standard_b64encode(contenu_fichier).decode("utf-8")
+
+        reponse = client.messages.create(
+            model="claude-sonnet-4-6",
+            max_tokens=10,
+            messages=[{
+                "role": "user",
+                "content": [
+                    {
+                        "type": "image",
+                        "source": {
+                            "type": "base64",
+                            "media_type": "image/jpeg",
+                            "data": image_b64,
+                        },
+                    },
+                    {"type": "text", "text": _PROMPT_VERIFICATION_IA},
+                ],
+            }],
+        )
+
+        texte = reponse.content[0].text.strip().upper()
+        if texte.startswith("OUI"):
+            return True, None
+        return False, "La photo ne semble pas montrer de déchets — à vérifier manuellement."
+
+    except Exception:
+        # On ne bloque jamais un signalement à cause d'un souci technique
+        # côté IA (clé absente, quota, réseau). Les autres contrôles
+        # (EXIF, hash) restent les garde-fous obligatoires.
+        return True, None
 
 
 @dataclass
@@ -154,6 +216,18 @@ def verifier_photo(
                 exif_date=exif_date,
                 exif_point=exif_point,
             )
+
+    # 4. Vérification IA du contenu (Claude vision) -- dernière étape,
+    # seulement si tous les contrôles précédents sont passés.
+    contenu_valide, motif_ia = _verifier_contenu_ia(contenu_fichier)
+    if not contenu_valide:
+        return ResultatVerification(
+            statut=StatutVerificationPhoto.suspecte,
+            motif_rejet=motif_ia,
+            hash_perceptuel=hash_perceptuel,
+            exif_date=exif_date,
+            exif_point=exif_point,
+        )
 
     return ResultatVerification(
         statut=StatutVerificationPhoto.valide,

@@ -21,6 +21,21 @@ class Settings(BaseSettings):
     # Optimisation de tournées
     mapbox_token: str = "change-moi-dans-le-.env"
 
+    # Vérification IA du contenu des photos de signalement
+    # IMPORTANT : anthropic_api_key DOIT être surchargée via .env
+    # (jamais la valeur par défaut ci-dessous).
+    anthropic_api_key: str = "change-moi-dans-le-.env"
+    verification_ia_active: bool = True
+
+    # Alertes email "point sauté" (SMTP Gmail avec mot de passe d'application)
+    # IMPORTANT : smtp_username / smtp_password DOIVENT être surchargés
+    # via .env (jamais les valeurs par défaut ci-dessous).
+    smtp_host: str = "smtp.gmail.com"
+    smtp_port: int = 587
+    smtp_username: str = "change-moi-dans-le-.env"
+    smtp_password: str = "change-moi-dans-le-.env"
+    alertes_email_active: bool = True
+
     class Config:
         env_file = ".env"
 
