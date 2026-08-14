@@ -30,6 +30,7 @@ from app.models.operations import TrajetCamion, StatutTrajet
 
 from app.schemas.trajet import TrajetOptimiseReponse
 from app.services.optimisation import optimiser_tournee, ErreurOptimisation
+from app.services.alertes import envoyer_alerte_point_saute
 
 router = APIRouter(prefix="/trajets", tags=["Trajets"])
 
@@ -88,7 +89,7 @@ def _detecter_points_sautes(
     ordre_collecte,
     chauffeur_id,
     db: Session,
-) -> int:
+) -> list[PointSaute]:
     """
     Après qu'un bac soit marqué collecté, vérifie si des bacs plus tôt
     dans l'ordre planifié de la tournée n'ont pas encore été collectés.
@@ -96,8 +97,9 @@ def _detecter_points_sautes(
     le vider, dans le désordre de la tournée prévue.
 
     Idempotent : ne crée pas de doublon si ce bac a déjà été flaggé comme
-    sauté sur ce trajet lors d'un appel précédent. Renvoie le nombre de
-    nouveaux points sautés détectés lors de cet appel.
+    sauté sur ce trajet lors d'un appel précédent. Renvoie la liste des
+    nouveaux objets PointSaute créés lors de cet appel (pas encore
+    committés), pour permettre l'envoi d'alertes email juste après.
     """
     ids_deja_flagges = {
         str(row.bac_id)
@@ -106,7 +108,7 @@ def _detecter_points_sautes(
         .all()
     }
 
-    nouveaux = 0
+    nouveaux = []
     for point in trajet.liste_points_gps:
         if point["bac_id"] == bac_collecte_id:
             continue
@@ -117,14 +119,16 @@ def _detecter_points_sautes(
         if point["bac_id"] in ids_deja_flagges:
             continue  # déjà tracé lors d'un passage précédent
 
-        db.add(PointSaute(
+        point_saute = PointSaute(
             trajet_id=trajet.id,
             bac_id=uuid.UUID(point["bac_id"]),
             chauffeur_id=chauffeur_id,
-        ))
-        nouveaux += 1
+        )
+        db.add(point_saute)
+        nouveaux.append(point_saute)
 
     return nouveaux
+
 
 
 @router.patch("/{trajet_id}/bacs/{bac_id}/collecter", response_model=CollecteReponse)
@@ -161,7 +165,7 @@ def collecter_bac(
             detail="Ce bac ne fait pas partie de cette tournée.",
         )
 
-    _detecter_points_sautes(
+    nouveaux_points_sautes = _detecter_points_sautes(
         trajet=trajet,
         bac_collecte_id=bac_id,
         ordre_collecte=point_trouve["ordre"],
@@ -183,6 +187,30 @@ def collecter_bac(
 
     db.commit()
     db.refresh(trajet)
+
+    # Envoi des alertes email pour les nouveaux points sautés détectés.
+    # Effectué après le commit principal pour ne jamais bloquer la
+    # collecte du chauffeur en cas de souci SMTP.
+    if nouveaux_points_sautes:
+        camion = db.query(Camion).filter(Camion.id == trajet.camion_id).first()
+        entreprise = (
+            db.query(EntrepriseCollecte).filter(EntrepriseCollecte.id == camion.entreprise_id).first()
+            if camion else None
+        )
+        chauffeur = db.query(Utilisateur).filter(Utilisateur.id == utilisateur.id).first()
+
+        if entreprise is not None and entreprise.email_contact:
+            for point_saute in nouveaux_points_sautes:
+                envoye = envoyer_alerte_point_saute(
+                    email_destinataire=entreprise.email_contact,
+                    entreprise_nom=entreprise.nom,
+                    camion_matricule=camion.matricule if camion else "N/A",
+                    chauffeur_nom=chauffeur.nom if chauffeur else "N/A",
+                    bac_id=str(point_saute.bac_id),
+                    date_trajet=str(trajet.date_trajet),
+                )
+                point_saute.alerte_envoyee = envoye
+            db.commit()
 
     return CollecteReponse(
         bac_id=bac_id,

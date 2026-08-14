@@ -35,5 +35,6 @@ class EntrepriseCollecte(Base):
 
     id = Column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
     nom = Column(String(150), nullable=False)
+    email_contact = Column(String(255), nullable=True)
     zones_assignees = Column(Geography(geometry_type="MULTIPOLYGON", srid=4326), nullable=True)
     date_creation = Column(DateTime(timezone=True), default=datetime.utcnow)
