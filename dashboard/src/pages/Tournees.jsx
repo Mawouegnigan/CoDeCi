@@ -2,6 +2,8 @@ import { useEffect, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import apiClient from '../api/client';
 import { useAuth } from '../context/AuthContext';
+import Layout from '../components/Layout';
+import { classeStatut } from '../utils/statut';
 
 function dateDuJour() {
   return new Date().toISOString().slice(0, 10);
@@ -15,11 +17,12 @@ export default function Tournees() {
   const [dateFiltre, setDateFiltre] = useState(dateDuJour());
   const [optimisationEnCours, setOptimisationEnCours] = useState(null);
   const [messagesOptimisation, setMessagesOptimisation] = useState({});
-  const { utilisateur, deconnexion } = useAuth();
+  const { deconnexion } = useAuth();
   const navigate = useNavigate();
 
   useEffect(() => {
     chargerTrajets(dateFiltre);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [dateFiltre]);
 
   async function chargerTrajets(date) {
@@ -58,7 +61,7 @@ export default function Tournees() {
         navigate('/');
         return;
       }
-      const detail = err.response?.data?.detail || 'Échec de l\'optimisation.';
+      const detail = err.response?.data?.detail || "Échec de l'optimisation.";
       setMessagesOptimisation((precedent) => ({
         ...precedent,
         [trajetId]: { type: 'erreur', texte: detail },
@@ -68,91 +71,82 @@ export default function Tournees() {
     }
   }
 
-  function gererDeconnexion() {
-    deconnexion();
-    navigate('/');
-  }
-
   return (
-    <div style={{ padding: '24px', fontFamily: 'sans-serif' }}>
-      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-        <h1>Tournées ({total})</h1>
-        <div>
-          <span style={{ marginRight: '12px' }}>{utilisateur?.nom} ({utilisateur?.profil})</span>
-          <button onClick={gererDeconnexion}>Déconnexion</button>
+    <Layout title="Tournées" subtitle={`${total} tournée${total > 1 ? 's' : ''} · ${dateFiltre}`}>
+      <div className="field">
+        <label htmlFor="date-tournees">Date des tournées</label>
+        <input
+          id="date-tournees"
+          type="date"
+          value={dateFiltre}
+          onChange={(e) => setDateFiltre(e.target.value)}
+        />
+      </div>
+
+      {erreur && <div className="alert alert--error">{erreur}</div>}
+
+      <div className="card">
+        <div className="table-wrap">
+          {chargement ? (
+            <div className="loading-state">Chargement…</div>
+          ) : (
+            <table className="table">
+              <thead>
+                <tr>
+                  <th>Camion</th>
+                  <th>Entreprise</th>
+                  <th>Chauffeur</th>
+                  <th>Statut</th>
+                  <th>Bacs collectés</th>
+                  <th>Action</th>
+                </tr>
+              </thead>
+              <tbody>
+                {trajets.length === 0 && (
+                  <tr>
+                    <td colSpan={6} className="td-muted">
+                      Aucune tournée pour cette date.
+                    </td>
+                  </tr>
+                )}
+                {trajets.map((t) => (
+                  <tr key={t.id}>
+                    <td className="mono">{t.camion_matricule}</td>
+                    <td>{t.entreprise_nom}</td>
+                    <td>{t.chauffeur_nom}</td>
+                    <td>
+                      <span className={`badge ${classeStatut(t.statut)}`}>{t.statut}</span>
+                    </td>
+                    <td className="mono">
+                      {t.nombre_bacs_collectes} / {t.nombre_bacs_total}
+                    </td>
+                    <td>
+                      <button
+                        className="btn btn--primary"
+                        onClick={() => optimiserTrajet(t.id)}
+                        disabled={t.statut === 'termine' || optimisationEnCours === t.id}
+                      >
+                        {optimisationEnCours === t.id ? 'Optimisation…' : 'Optimiser'}
+                      </button>
+                      {messagesOptimisation[t.id] && (
+                        <div
+                          className={
+                            messagesOptimisation[t.id].type === 'erreur'
+                              ? 'inline-message inline-message--erreur'
+                              : 'inline-message inline-message--succes'
+                          }
+                        >
+                          {messagesOptimisation[t.id].texte}
+                        </div>
+                      )}
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          )}
         </div>
       </div>
-      <nav style={{ margin: '16px 0' }}>
-        <a href="/signalements" style={{ marginRight: '16px' }}>Signalements</a>
-        <a href="/tournees" style={{ marginRight: '16px' }}>Tournées</a>
-        <a href="/carte">Carte</a>
-      </nav>
-
-      <div style={{ margin: '16px 0' }}>
-        <label>
-          Date des tournées :{' '}
-          <input
-            type="date"
-            value={dateFiltre}
-            onChange={(e) => setDateFiltre(e.target.value)}
-          />
-        </label>
-      </div>
-
-      {erreur && <p style={{ color: 'red' }}>{erreur}</p>}
-      {chargement ? (
-        <p>Chargement...</p>
-      ) : (
-        <table style={{ width: '100%', borderCollapse: 'collapse', marginTop: '16px' }}>
-          <thead>
-            <tr style={{ textAlign: 'left', borderBottom: '2px solid #ccc' }}>
-              <th style={{ padding: '8px' }}>Camion</th>
-              <th style={{ padding: '8px' }}>Entreprise</th>
-              <th style={{ padding: '8px' }}>Chauffeur</th>
-              <th style={{ padding: '8px' }}>Statut</th>
-              <th style={{ padding: '8px' }}>Bacs collectés</th>
-              <th style={{ padding: '8px' }}>Action</th>
-            </tr>
-          </thead>
-          <tbody>
-            {trajets.length === 0 && (
-              <tr>
-                <td colSpan={6} style={{ padding: '8px', color: '#888' }}>
-                  Aucune tournée pour cette date.
-                </td>
-              </tr>
-            )}
-            {trajets.map((t) => (
-              <tr key={t.id} style={{ borderBottom: '1px solid #eee' }}>
-                <td style={{ padding: '8px' }}>{t.camion_matricule}</td>
-                <td style={{ padding: '8px' }}>{t.entreprise_nom}</td>
-                <td style={{ padding: '8px' }}>{t.chauffeur_nom}</td>
-                <td style={{ padding: '8px' }}>{t.statut}</td>
-                <td style={{ padding: '8px' }}>{t.nombre_bacs_collectes} / {t.nombre_bacs_total}</td>
-                <td style={{ padding: '8px' }}>
-                  <button
-                    onClick={() => optimiserTrajet(t.id)}
-                    disabled={t.statut === 'termine' || optimisationEnCours === t.id}
-                  >
-                    {optimisationEnCours === t.id ? 'Optimisation...' : 'Optimiser'}
-                  </button>
-                  {messagesOptimisation[t.id] && (
-                    <div
-                      style={{
-                        fontSize: '12px',
-                        marginTop: '4px',
-                        color: messagesOptimisation[t.id].type === 'erreur' ? 'red' : 'green',
-                      }}
-                    >
-                      {messagesOptimisation[t.id].texte}
-                    </div>
-                  )}
-                </td>
-              </tr>
-            ))}
-          </tbody>
-        </table>
-      )}
-    </div>
+    </Layout>
   );
 }
