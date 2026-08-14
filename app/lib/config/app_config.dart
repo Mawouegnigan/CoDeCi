@@ -5,7 +5,10 @@
 /// - Émulateur Android -> http://10.0.2.2:8000
 /// - Téléphone Android réel sur le même Wi-Fi -> http://<IP_LOCALE_DU_PC>:8000
 class AppConfig {
-  static const String apiBaseUrl = 'http://10.0.2.2:8000';
+  static const String apiBaseUrl = String.fromEnvironment(
+  'API_BASE_URL',
+  defaultValue: 'http://10.0.2.2:8000',
+);
 
   static const String signalementsEndpoint = '/signalements';
 
