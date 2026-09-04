@@ -96,12 +96,18 @@ def lister_signalements(
     entreprises et ministériels. Lecture seule, triée du plus récent au
     plus ancien.
 
-    NOTE MVP : accessible à tous les profils du dashboard sans filtrage
-    automatique par commune/entreprise -- le role-scoping strict (agent
-    municipal limité à sa commune, entreprise à sa flotte) est prévu "à
-    terme" mais pas requis pour le prototype démontrable. Les filtres
-    query params ci-dessous permettent déjà de circonscrire les résultats
-    manuellement en attendant cette évolution.
+    Role-scoping :
+    - agent_municipal : limité aux signalements de sa commune de rattachement.
+    - entreprise : limité aux signalements des communes qui lui sont
+      attribuées (via Commune.entreprise_collecte_id).
+    - admin / ministere : accès complet, sans restriction.
+
+    Les query params (commune_id, statut, categorie_id) restent utilisables
+    par admin/ministere pour affiner manuellement les résultats. Pour
+    agent_municipal, commune_id est ignoré (périmètre fixe = sa commune).
+    Pour entreprise, commune_id est accepté s'il fait partie de ses communes
+    attribuées (403 sinon) et permet d'affiner sur une seule commune.
+    
     """
     requete = db.query(Signalement).options(
         joinedload(Signalement.categorie),
@@ -116,6 +122,26 @@ def lister_signalements(
                 detail="Ce compte n'est rattaché à aucune commune.",
             )
         requete = requete.filter(Signalement.commune_id == utilisateur.commune_id)
+    elif utilisateur.profil == ProfilUtilisateur.entreprise:
+        if utilisateur.entreprise_id is None:
+            raise HTTPException(
+                status_code=status.HTTP_403_FORBIDDEN,
+                detail="Ce compte n'est rattaché à aucune entreprise de collecte.",
+            )
+        communes_attribuees = [
+            c.id for c in db.query(Commune.id).filter(
+                Commune.entreprise_collecte_id == utilisateur.entreprise_id
+            )
+        ]
+        if commune_id is not None:
+            if commune_id not in communes_attribuees:
+                raise HTTPException(
+                    status_code=status.HTTP_403_FORBIDDEN,
+                    detail="Cette commune ne fait pas partie de votre périmètre.",
+                )
+            requete = requete.filter(Signalement.commune_id == commune_id)
+        else:
+            requete = requete.filter(Signalement.commune_id.in_(communes_attribuees))
     elif commune_id is not None:
         requete = requete.filter(Signalement.commune_id == commune_id)
 
