@@ -47,6 +47,9 @@ flutter:
   # the material Icons class.
   uses-material-design: true
 
+  assets:
+    - assets/images/logo_codeci.png
+
 flutter_launcher_icons:
   android: true
   ios: true

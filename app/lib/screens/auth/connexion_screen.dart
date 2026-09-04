@@ -72,7 +72,7 @@ class _ConnexionScreenState extends State<ConnexionScreen> {
             child: ListView(
               children: [
                 const SizedBox(height: 48),
-                const Icon(Icons.recycling, size: 64, color: Colors.orange),
+                Image.asset('assets/images/logo_codeci.png', height: 64),
                 const SizedBox(height: 16),
                 const Text(
                   'CoDeCI',
