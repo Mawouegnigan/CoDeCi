@@ -8,9 +8,16 @@ vérification anti-fraude, puis enregistre le signalement.
 GET /signalements : liste paginée pour les tableaux de bord
 (agent municipal, entreprise de collecte, admin, ministère).
 Lecture seule, inaccessible aux profils citoyen et chauffeur.
+
+PATCH /signalements/{id}/resoudre : clôture manuelle d'un dépôt
+sauvage (signalement sans bac associé) par un agent municipal,
+avec crédit de points au citoyen à la clé. Les signalements
+rattachés à un bac se résolvent automatiquement lors de la
+collecte par le chauffeur (voir trajets.py, collecter_bac).
 """
 
 import uuid
+from datetime import datetime
 from pathlib import Path
 
 from fastapi import APIRouter, Depends, File, Form, HTTPException, Query, UploadFile, status
@@ -31,10 +38,12 @@ from app.schemas.signalement import (
     SignalementReponse,
     SignalementListeReponse,
     SignalementListeItem,
+    SignalementResolutionReponse,
     CategorieInfo,
     CommuneInfo,
 )
 from app.services.photo_verification import verifier_photo, point_vers_geography
+from app.services.points_service import crediter_points_signalement
 
 router = APIRouter(prefix="/signalements", tags=["Signalements"])
 
@@ -266,4 +275,61 @@ async def creer_signalement(
         date_creation=nouveau_signalement.date_creation,
         photo_statut_verification=resultat.statut.value,
         motif_rejet=resultat.motif_rejet,
+    )
+
+
+@router.patch("/{signalement_id}/resoudre", response_model=SignalementResolutionReponse)
+def resoudre_signalement(
+    signalement_id: uuid.UUID,
+    utilisateur: Utilisateur = Depends(
+        exiger_profil(ProfilUtilisateur.agent_municipal, ProfilUtilisateur.admin)
+    ),
+    db: Session = Depends(get_db),
+):
+    """
+    Clôture manuellement un signalement sans bac associé (dépôt sauvage),
+    après constat sur place par un agent municipal. Les signalements
+    rattachés à un bac se résolvent automatiquement lors de la collecte
+    (voir collecter_bac dans trajets.py) et sont rejetés ici pour éviter
+    une double voie de résolution incohérente.
+    """
+    signalement = db.query(Signalement).filter(Signalement.id == signalement_id).first()
+    if signalement is None:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="Signalement introuvable.",
+        )
+
+    if signalement.bac_id is not None:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="Ce signalement est rattaché à un bac : il se résout automatiquement lors de la collecte.",
+        )
+
+    if signalement.statut == StatutSignalement.resolu:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="Ce signalement est déjà résolu.",
+        )
+
+    if utilisateur.profil == ProfilUtilisateur.agent_municipal:
+        if utilisateur.commune_id is None or signalement.commune_id != utilisateur.commune_id:
+            raise HTTPException(
+                status_code=status.HTTP_403_FORBIDDEN,
+                detail="Ce signalement ne fait pas partie de votre commune.",
+            )
+
+    signalement.statut = StatutSignalement.resolu
+    signalement.date_resolution = datetime.utcnow()
+
+    transaction = crediter_points_signalement(signalement, db)
+
+    db.commit()
+    db.refresh(signalement)
+
+    return SignalementResolutionReponse(
+        id=signalement.id,
+        statut=signalement.statut.value,
+        date_resolution=signalement.date_resolution,
+        points_credites=transaction.montant_points if transaction else 0,
     )

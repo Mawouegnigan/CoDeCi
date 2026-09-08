@@ -66,3 +66,14 @@ class SignalementListeReponse(BaseModel):
     total: int
     limit: int
     offset: int
+
+
+class SignalementResolutionReponse(BaseModel):
+    """Confirmation après résolution manuelle d'un signalement (dépôt sauvage)."""
+    id: uuid.UUID
+    statut: str
+    date_resolution: datetime
+    points_credites: int
+
+    class Config:
+        from_attributes = True

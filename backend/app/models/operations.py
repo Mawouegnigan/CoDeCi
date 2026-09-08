@@ -7,7 +7,7 @@ import uuid
 import enum
 from datetime import datetime
 
-from sqlalchemy import Column, Integer, Boolean, Date, DateTime, Enum, ForeignKey
+from sqlalchemy import Column, Integer, String, Boolean, Date, DateTime, Enum, ForeignKey
 from sqlalchemy.dialects.postgresql import UUID, JSONB
 
 from app.database import Base
@@ -50,14 +50,38 @@ class TypeTransactionPoints(str, enum.Enum):
     gain_signalement = "gain_signalement"
     gain_tri_selectif = "gain_tri_selectif"
     conversion_mobile_money = "conversion_mobile_money"
+    annulation_conversion = "annulation_conversion"
+
+
+class StatutTransactionPoints(str, enum.Enum):
+    en_attente = "en_attente"
+    reussi = "reussi"
+    echoue = "echoue"
 
 
 class TransactionPoints(Base):
+    """
+    Registre de points citoyens (ledger en partie double). Source de
+    vérité auditable : Utilisateur.solde_points est un champ de cache
+    mis à jour à chaque écriture ici, jamais modifié directement.
+
+    signalement_id est unique en base : garantit qu'un même signalement
+    ne peut jamais être crédité deux fois (idempotence).
+    """
     __tablename__ = "transactions_points"
 
     id = Column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
     utilisateur_id = Column(UUID(as_uuid=True), ForeignKey("utilisateurs.id"), nullable=False)
-    signalement_id = Column(UUID(as_uuid=True), ForeignKey("signalements.id"), nullable=True)
-    points = Column(Integer, nullable=False)
+    signalement_id = Column(UUID(as_uuid=True), ForeignKey("signalements.id"), nullable=True, unique=True)
+
+    montant_points = Column(Integer, nullable=False)
     type = Column(Enum(TypeTransactionPoints), nullable=False)
+    statut = Column(Enum(StatutTransactionPoints), nullable=False, default=StatutTransactionPoints.reussi)
+
+    # Renseignés uniquement pour les débits (conversion MoMo, chantier 3).
+    montant_fcfa = Column(Integer, nullable=True)
+    numero_telephone = Column(String(20), nullable=True)
+    reference_externe = Column(String(100), nullable=True)
+
     date_creation = Column(DateTime(timezone=True), default=datetime.utcnow)
+    date_maj = Column(DateTime(timezone=True), default=datetime.utcnow, onupdate=datetime.utcnow)

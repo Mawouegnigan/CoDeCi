@@ -1,36 +1,33 @@
 """
 Routes pour les tournées (trajets) des chauffeurs.
 """
-from app.models.operations import TrajetCamion, StatutTrajet
-from typing import Optional
-from app.models.organisation import EntrepriseCollecte
-from app.schemas.trajet import TrajetListeItem, TrajetListeReponse
 import uuid
-from datetime import datetime
-from sqlalchemy.orm.attributes import flag_modified
-
-from app.models.bac_categorie import StatutBac
-from app.models.operations import PointSaute
-from app.schemas.trajet import CollecteReponse
-from app.models.bac_categorie import BacPublic
-
-from datetime import date
+from datetime import date, datetime
+from typing import Optional
 
 from fastapi import APIRouter, Depends, HTTPException, status
 from sqlalchemy.orm import Session
+from sqlalchemy.orm.attributes import flag_modified
 
 from app.database import get_db
-from app.models.utilisateur import Utilisateur
-from app.models.operations import TrajetCamion
+from app.models.bac_categorie import BacPublic, StatutBac
 from app.models.camion import Camion
-from app.models.bac_categorie import BacPublic
-from app.schemas.trajet import TrajetReponse, PointTrajetReponse
+from app.models.operations import TrajetCamion, StatutTrajet, PointSaute
+from app.models.organisation import EntrepriseCollecte
+from app.models.signalement import Signalement, StatutSignalement
+from app.models.utilisateur import Utilisateur
 from app.api.dependencies import exiger_profil
-from app.models.operations import TrajetCamion, StatutTrajet
-
-from app.schemas.trajet import TrajetOptimiseReponse
-from app.services.optimisation import optimiser_tournee, ErreurOptimisation
+from app.schemas.trajet import (
+    TrajetReponse,
+    PointTrajetReponse,
+    CollecteReponse,
+    TrajetListeItem,
+    TrajetListeReponse,
+    TrajetOptimiseReponse,
+)
 from app.services.alertes import envoyer_alerte_point_saute
+from app.services.optimisation import optimiser_tournee, ErreurOptimisation
+from app.services.points_service import crediter_points_signalement
 
 router = APIRouter(prefix="/trajets", tags=["Trajets"])
 
@@ -130,7 +127,6 @@ def _detecter_points_sautes(
     return nouveaux
 
 
-
 @router.patch("/{trajet_id}/bacs/{bac_id}/collecter", response_model=CollecteReponse)
 def collecter_bac(
     trajet_id: str,
@@ -181,6 +177,21 @@ def collecter_bac(
     if bac is not None:
         bac.statut = StatutBac.vide
         bac.derniere_vidange = datetime.utcnow()
+
+        # Résolution automatique de tous les signalements en attente
+        # rattachés à ce bac : la collecte physique par le chauffeur
+        # constitue la preuve de résolution. Plusieurs citoyens ont pu
+        # signaler le même bac -- chacun est crédité individuellement.
+        # crediter_points_signalement() est idempotent : aucun risque
+        # de double crédit si cette route est rappelée par erreur.
+        signalements_lies = db.query(Signalement).filter(
+            Signalement.bac_id == bac.id,
+            Signalement.statut.in_([StatutSignalement.en_attente, StatutSignalement.en_cours]),
+        ).all()
+        for signalement in signalements_lies:
+            signalement.statut = StatutSignalement.resolu
+            signalement.date_resolution = datetime.utcnow()
+            crediter_points_signalement(signalement, db)
 
     tous_collectes = all(p.get("collecte") for p in trajet.liste_points_gps)
     trajet.statut = StatutTrajet.termine if tous_collectes else StatutTrajet.en_cours
